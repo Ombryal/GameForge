@@ -7,3 +7,6 @@ license.workspace = true
 [dependencies]
 winit = "0.30"
 softbuffer = "0.4"
+
+[dev-dependencies]
+gameforge-renderer2d = { path = "../renderer2d" }
