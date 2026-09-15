@@ -1,0 +1,9 @@
+[package]
+name = "gameforge-platform"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+winit = "0.30"
+softbuffer = "0.4"
