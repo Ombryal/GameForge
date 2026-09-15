@@ -1,10 +1,7 @@
 [package]
-name = "gameforge-runtime"
+name = "gameforge-ecs"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-
-[dev-dependencies]
-gameforge-ecs = { path = "../ecs" }
