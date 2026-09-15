@@ -1,0 +1,13 @@
+# Build artifacts
+/target/
+**/target/
+
+# Editor/OS cruft
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Local env/config overrides
+.env
+*.local

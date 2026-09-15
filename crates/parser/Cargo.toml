@@ -1,0 +1,9 @@
+[package]
+name = "gameforge-parser"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+gameforge-lexer = { path = "../lexer" }
+gameforge-ast = { path = "../ast" }
