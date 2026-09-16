@@ -52,6 +52,39 @@ impl Vec2 {
     }
 }
 
+/// An axis-aligned bounding box, defined by its top-left corner and size.
+///
+/// Top-left rather than center-based to match the coordinate space
+/// `renderer2d::Canvas::fill_rect` already uses — a `Rect` can be built
+/// straight from the same `(x, y, w, h)` values a draw call takes.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Rect {
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+}
+
+impl Rect {
+    pub fn new(x: f32, y: f32, w: f32, h: f32) -> Self {
+        Self { x, y, w, h }
+    }
+
+    /// Whether this rect and `other` overlap at all.
+    ///
+    /// Standard separating-axis check for two AABBs: they overlap unless
+    /// one is entirely to the left, right, above, or below the other.
+    /// Edges merely touching count as *not* overlapping, so sliding a
+    /// rect until its edge exactly meets another doesn't falsely report
+    /// a collision.
+    pub fn intersects(self, other: Rect) -> bool {
+        self.x < other.x + other.w
+            && self.x + self.w > other.x
+            && self.y < other.y + other.h
+            && self.y + self.h > other.y
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -86,5 +119,26 @@ mod tests {
     fn normalizing_zero_vector_does_not_produce_nan() {
         let v = Vec2::zero().normalized();
         assert_eq!(v, Vec2::zero());
+    }
+
+    #[test]
+    fn overlapping_rects_intersect() {
+        let a = Rect::new(0.0, 0.0, 10.0, 10.0);
+        let b = Rect::new(5.0, 5.0, 10.0, 10.0);
+        assert!(a.intersects(b));
+    }
+
+    #[test]
+    fn separated_rects_do_not_intersect() {
+        let a = Rect::new(0.0, 0.0, 10.0, 10.0);
+        let b = Rect::new(20.0, 20.0, 10.0, 10.0);
+        assert!(!a.intersects(b));
+    }
+
+    #[test]
+    fn touching_edges_do_not_count_as_intersecting() {
+        let a = Rect::new(0.0, 0.0, 10.0, 10.0);
+        let b = Rect::new(10.0, 0.0, 10.0, 10.0);
+        assert!(!a.intersects(b));
     }
 }

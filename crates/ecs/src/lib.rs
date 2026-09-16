@@ -60,6 +60,18 @@ impl World {
     pub fn entity_count(&self) -> usize {
         self.entities.len()
     }
+
+    /// All currently alive entities, in spawn order.
+    ///
+    /// There's no query filtering by component yet — a system that only
+    /// cares about entities with certain components has to call
+    /// `get`/`get_mut` per entity and skip the ones that don't match, the
+    /// way `movement_system` does in the platform crate's ecs_demo
+    /// example. A real query API replaces that once there's a second
+    /// system that needs the same filtering logic duplicated.
+    pub fn entities(&self) -> &[Entity] {
+        &self.entities
+    }
 }
 
 #[cfg(test)]
@@ -107,5 +119,13 @@ mod tests {
         world.insert(e, Position { x: 0.0, y: 0.0 });
         world.get_mut::<Position>(e).unwrap().x = 5.0;
         assert_eq!(world.get::<Position>(e).unwrap().x, 5.0);
+    }
+
+    #[test]
+    fn entities_lists_all_alive_entities_in_spawn_order() {
+        let mut world = World::new();
+        let a = world.spawn();
+        let b = world.spawn();
+        assert_eq!(world.entities(), &[a, b]);
     }
 }
