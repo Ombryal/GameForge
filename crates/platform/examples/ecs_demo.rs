@@ -1,11 +1,14 @@
-// Proves ecs and platform actually compose: a World holds a player
-// entity (Position + Velocity) and three static obstacles (Position
-// only), and movement_system only touches the ones with a Velocity to
-// move, skipping the rest without needing to know they exist. Run with:
+// Proves ecs, math, and platform compose into an actual tiny playable
+// demo: a World holds a player entity (Position + Velocity) and three
+// static obstacles (Position only). movement_system moves the player,
+// then stops it at whichever axis would have overlapped an obstacle —
+// obstacles never move and never need a Velocity to block the player.
+// Run with:
 //   cargo run --example ecs_demo -p gameforge-platform
-// WASD/arrows move the blue square around the three static red squares.
+// WASD/arrows move the blue square; it should stop at the edges of the
+// three red squares instead of passing through them.
 use gameforge_ecs::{Entity, World};
-use gameforge_math::Vec2;
+use gameforge_math::{Rect, Vec2};
 use gameforge_platform::{Frame, InputState, WindowConfig};
 use gameforge_renderer2d::Canvas;
 use winit::keyboard::KeyCode;
@@ -46,8 +49,6 @@ impl EcsDemo {
         Self { world, player, obstacles }
     }
 
-    // Obstacles have no Velocity component, so there's nothing here for
-    // them to opt into — this only ever touches the player.
     fn input_system(&mut self, input: &InputState) {
         let mut dir = Vec2::zero();
         if input.is_held(KeyCode::KeyW) || input.is_held(KeyCode::ArrowUp) {
@@ -68,21 +69,54 @@ impl EcsDemo {
         }
     }
 
-    // Collected into an owned Vec first: iterating world.entities()
-    // directly while calling world.get_mut() inside the loop body would
-    // hold an immutable borrow of world alive across a mutable one.
-    // Cloning three entity ids is free; a real query API would avoid
-    // needing this at all once one exists.
+    fn rect_at(pos: Vec2) -> Rect {
+        Rect::new(pos.x, pos.y, RECT_SIZE as f32, RECT_SIZE as f32)
+    }
+
+    // Moves each axis separately and checks collision after each one,
+    // rather than moving both axes then checking once. Combined-axis
+    // movement would either block a diagonal step entirely when only one
+    // axis actually hit something, or require deciding which axis "wins"
+    // — resolving per-axis sidesteps both problems and is what lets the
+    // player slide along an obstacle's edge instead of stopping dead the
+    // moment either axis would collide.
     fn movement_system(&mut self, dt: f32) {
         for entity in self.world.entities().to_vec() {
             let Some(Velocity(v)) = self.world.get::<Velocity>(entity) else {
                 continue;
             };
             let delta = v.scale(dt);
+            let Some(&Position(current)) = self.world.get::<Position>(entity) else {
+                continue;
+            };
+
+            let mut next = current;
+
+            let stepped_x = Vec2::new(next.x + delta.x, next.y);
+            if !self.hits_any_obstacle(entity, stepped_x) {
+                next = stepped_x;
+            }
+
+            let stepped_y = Vec2::new(next.x, next.y + delta.y);
+            if !self.hits_any_obstacle(entity, stepped_y) {
+                next = stepped_y;
+            }
+
             if let Some(position) = self.world.get_mut::<Position>(entity) {
-                position.0 = position.0.add(delta);
+                position.0 = next;
             }
         }
+    }
+
+    fn hits_any_obstacle(&self, moving: Entity, at: Vec2) -> bool {
+        let candidate = Self::rect_at(at);
+        self.obstacles.iter().any(|&obstacle| {
+            obstacle != moving
+                && self
+                    .world
+                    .get::<Position>(obstacle)
+                    .is_some_and(|&Position(pos)| candidate.intersects(Self::rect_at(pos)))
+        })
     }
 }
 
