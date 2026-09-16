@@ -1,6 +1,8 @@
 use std::num::NonZeroU32;
 use std::sync::Arc;
+use std::time::Instant;
 
+use gameforge_runtime::FixedTimestep;
 use softbuffer::{Context, Surface};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
@@ -11,18 +13,27 @@ use winit::window::{Window, WindowId};
 
 use crate::{InputState, WindowConfig};
 
-/// Per-frame hook into the platform's window and input.
-///
-/// Deliberately doesn't take a delta time — this layer only owns the
-/// window, event loop, and raw pixel buffer. Timing is `runtime`'s job;
-/// wiring the two together is a later integration step, not this one.
-pub trait Frame {
-    /// Called once per frame before `render`, with the latest input snapshot.
-    fn update(&mut self, input: &InputState);
+/// Fixed simulation step, independent of display refresh rate.
+const FIXED_DT: f32 = 1.0 / 60.0;
 
-    /// Called once per frame to draw. `pixels` is ARGB8888, row-major,
-    /// `width * height` elements — hand it to `renderer2d::Canvas` or
-    /// write into it directly.
+/// Upper bound on how much wall-clock time a single frame feeds into the
+/// accumulator. Without this, a long stall (window drag, breakpoint, OS
+/// scheduling hiccup) queues up hundreds of catch-up update() calls in
+/// one frame — a slow frame causing the next frame to run even more
+/// simulation steps, making it slower still.
+const MAX_FRAME_TIME: f32 = 0.25;
+
+/// Per-frame hook into the platform's window and input.
+pub trait Frame {
+    /// Called once per fixed simulation step, `dt` seconds apart every
+    /// time regardless of actual frame rate. Movement, physics, and
+    /// anything that should look the same at 30fps and 240fps belongs
+    /// here rather than in `render`.
+    fn update(&mut self, dt: f32, input: &InputState);
+
+    /// Called once per rendered frame, after whichever `update` calls ran
+    /// this frame. May run more or less often than `update` — draw
+    /// current state here, don't advance simulation.
     fn render(&mut self, pixels: &mut [u32], width: u32, height: u32);
 }
 
@@ -34,6 +45,8 @@ struct App<G: Frame> {
     config: WindowConfig,
     game: G,
     input: InputState,
+    timestep: FixedTimestep,
+    last_frame: Option<Instant>,
     window: Option<Arc<Window>>,
     surface: Option<Surface<Arc<Window>, Arc<Window>>>,
 }
@@ -44,6 +57,8 @@ impl<G: Frame> App<G> {
             config,
             game,
             input: InputState::default(),
+            timestep: FixedTimestep::new(FIXED_DT),
+            last_frame: None,
             window: None,
             surface: None,
         }
@@ -64,7 +79,17 @@ impl<G: Frame> App<G> {
             .resize(width, height)
             .expect("failed to resize softbuffer surface");
 
-        self.game.update(&self.input);
+        let now = Instant::now();
+        let dt = self
+            .last_frame
+            .map_or(0.0, |prev| (now - prev).as_secs_f32())
+            .min(MAX_FRAME_TIME);
+        self.last_frame = Some(now);
+
+        let steps = self.timestep.advance(dt);
+        for _ in 0..steps {
+            self.game.update(self.timestep.step(), &self.input);
+        }
 
         let mut buffer = surface
             .buffer_mut()
@@ -109,10 +134,6 @@ impl<G: Frame> ApplicationHandler for App<G> {
     }
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-        // No frame pacing yet — every loop iteration asks for a redraw,
-        // which currently runs as fast as the OS schedules it. Frame
-        // rate limiting and vsync-aware pacing belong to the runtime
-        // integration, not here.
         if let Some(window) = &self.window {
             window.request_redraw();
         }
