@@ -7,6 +7,8 @@ license.workspace = true
 [dependencies]
 winit = "0.30"
 softbuffer = "0.4"
+gameforge-runtime = { path = "../runtime" }
 
 [dev-dependencies]
 gameforge-renderer2d = { path = "../renderer2d" }
+gameforge-math = { path = "../math" }
