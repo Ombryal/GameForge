@@ -12,3 +12,4 @@ gameforge-runtime = { path = "../runtime" }
 [dev-dependencies]
 gameforge-renderer2d = { path = "../renderer2d" }
 gameforge-math = { path = "../math" }
+gameforge-ecs = { path = "../ecs" }
