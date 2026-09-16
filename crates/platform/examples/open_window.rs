@@ -7,7 +7,7 @@ use gameforge_platform::{Frame, InputState, WindowConfig};
 struct Blank;
 
 impl Frame for Blank {
-    fn update(&mut self, _input: &InputState) {}
+    fn update(&mut self, _dt: f32, _input: &InputState) {}
 
     fn render(&mut self, pixels: &mut [u32], _width: u32, _height: u32) {
         pixels.fill(0xff181818);
