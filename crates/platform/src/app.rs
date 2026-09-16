@@ -35,6 +35,20 @@ pub trait Frame {
     /// this frame. May run more or less often than `update` — draw
     /// current state here, don't advance simulation.
     fn render(&mut self, pixels: &mut [u32], width: u32, height: u32);
+
+    /// Optional window title for this frame. Returning `None` leaves the
+    /// title unchanged; the OS window title only actually gets touched
+    /// when the returned value differs from what's already set, so this
+    /// can be recomputed every frame without spamming the window system.
+    ///
+    /// There's no text-rendering pipeline yet, so this is the only place
+    /// a game can currently show something like a score without drawing
+    /// digits by hand — a stopgap, not a long-term UI answer. Default
+    /// implementation returns `None` so existing `Frame` implementors
+    /// don't need to change to keep compiling.
+    fn window_title(&self) -> Option<String> {
+        None
+    }
 }
 
 /// softbuffer's Context/Surface borrow from whatever owns the window
@@ -47,6 +61,7 @@ struct App<G: Frame> {
     input: InputState,
     timestep: FixedTimestep,
     last_frame: Option<Instant>,
+    last_title: Option<String>,
     window: Option<Arc<Window>>,
     surface: Option<Surface<Arc<Window>, Arc<Window>>>,
 }
@@ -59,6 +74,7 @@ impl<G: Frame> App<G> {
             input: InputState::default(),
             timestep: FixedTimestep::new(FIXED_DT),
             last_frame: None,
+            last_title: None,
             window: None,
             surface: None,
         }
@@ -89,6 +105,13 @@ impl<G: Frame> App<G> {
         let steps = self.timestep.advance(dt);
         for _ in 0..steps {
             self.game.update(self.timestep.step(), &self.input);
+        }
+
+        if let Some(title) = self.game.window_title() {
+            if self.last_title.as_deref() != Some(title.as_str()) {
+                window.set_title(&title);
+                self.last_title = Some(title);
+            }
         }
 
         let mut buffer = surface
