@@ -9,6 +9,7 @@ pub enum TokenKind {
     Number(f64),
     Equals,
     Plus,
+    Colon,
     LeftBrace,
     RightBrace,
     Eof,
@@ -35,9 +36,6 @@ impl<'a> Lexer<'a> {
         Self { source, position: 0 }
     }
 
-    // Walks the source once and produces every token up front. This is
-    // simple to reason about for a first pass; we can switch to a lazy,
-    // pull-based iterator later if performance ever demands it.
     pub fn tokenize(&mut self) -> Vec<Token> {
         let mut tokens = Vec::new();
         let chars: Vec<char> = self.source.chars().collect();
@@ -57,6 +55,10 @@ impl<'a> Lexer<'a> {
                 }
                 '+' => {
                     tokens.push(Token { kind: TokenKind::Plus, start, end: start + 1 });
+                    self.position += 1;
+                }
+                ':' => {
+                    tokens.push(Token { kind: TokenKind::Colon, start, end: start + 1 });
                     self.position += 1;
                 }
                 '{' => {
@@ -115,5 +117,14 @@ mod tests {
         assert_eq!(tokens[0].kind, TokenKind::Identifier("speed".to_string()));
         assert_eq!(tokens[1].kind, TokenKind::Equals);
         assert_eq!(tokens[2].kind, TokenKind::Number(250.0));
+    }
+
+    #[test]
+    fn tokenizes_colon_for_typed_fields() {
+        let mut lexer = Lexer::new("speed: Float");
+        let tokens = lexer.tokenize();
+        assert_eq!(tokens[0].kind, TokenKind::Identifier("speed".to_string()));
+        assert_eq!(tokens[1].kind, TokenKind::Colon);
+        assert_eq!(tokens[2].kind, TokenKind::Identifier("Float".to_string()));
     }
 }
