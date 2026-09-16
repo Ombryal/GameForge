@@ -1,12 +1,8 @@
-// Proves ecs, math, and platform compose into an actual tiny playable
-// demo: a World holds a player entity (Position + Velocity) and three
-// static obstacles (Position only). movement_system moves the player,
-// then stops it at whichever axis would have overlapped an obstacle —
-// obstacles never move and never need a Velocity to block the player.
-// Run with:
+// A small playable loop: walk onto each red square to collect it. Once
+// collected an entity is despawned for good, not just hidden, and the
+// running score shows in the window title since there's no text
+// rendering pipeline to draw it on-canvas yet. Run with:
 //   cargo run --example ecs_demo -p gameforge-platform
-// WASD/arrows move the blue square; it should stop at the edges of the
-// three red squares instead of passing through them.
 use gameforge_ecs::{Entity, World};
 use gameforge_math::{Rect, Vec2};
 use gameforge_platform::{Frame, InputState, WindowConfig};
@@ -22,7 +18,9 @@ struct Velocity(Vec2);
 struct EcsDemo {
     world: World,
     player: Entity,
-    obstacles: Vec<Entity>,
+    collectibles: Vec<Entity>,
+    total_collectibles: usize,
+    score: u32,
 }
 
 impl EcsDemo {
@@ -33,7 +31,7 @@ impl EcsDemo {
         world.insert(player, Position(Vec2::new(100.0, 100.0)));
         world.insert(player, Velocity(Vec2::zero()));
 
-        let obstacles = [
+        let collectibles: Vec<Entity> = [
             Vec2::new(400.0, 200.0),
             Vec2::new(600.0, 400.0),
             Vec2::new(300.0, 500.0),
@@ -46,7 +44,15 @@ impl EcsDemo {
         })
         .collect();
 
-        Self { world, player, obstacles }
+        let total_collectibles = collectibles.len();
+
+        Self {
+            world,
+            player,
+            collectibles,
+            total_collectibles,
+            score: 0,
+        }
     }
 
     fn input_system(&mut self, input: &InputState) {
@@ -73,50 +79,46 @@ impl EcsDemo {
         Rect::new(pos.x, pos.y, RECT_SIZE as f32, RECT_SIZE as f32)
     }
 
-    // Moves each axis separately and checks collision after each one,
-    // rather than moving both axes then checking once. Combined-axis
-    // movement would either block a diagonal step entirely when only one
-    // axis actually hit something, or require deciding which axis "wins"
-    // — resolving per-axis sidesteps both problems and is what lets the
-    // player slide along an obstacle's edge instead of stopping dead the
-    // moment either axis would collide.
+    // Collectibles don't block movement the way the old static obstacles
+    // did — touching one collects it instead of stopping the player, so
+    // there's nothing left to resolve per-axis here.
     fn movement_system(&mut self, dt: f32) {
-        for entity in self.world.entities().to_vec() {
-            let Some(Velocity(v)) = self.world.get::<Velocity>(entity) else {
-                continue;
-            };
-            let delta = v.scale(dt);
-            let Some(&Position(current)) = self.world.get::<Position>(entity) else {
-                continue;
-            };
-
-            let mut next = current;
-
-            let stepped_x = Vec2::new(next.x + delta.x, next.y);
-            if !self.hits_any_obstacle(entity, stepped_x) {
-                next = stepped_x;
-            }
-
-            let stepped_y = Vec2::new(next.x, next.y + delta.y);
-            if !self.hits_any_obstacle(entity, stepped_y) {
-                next = stepped_y;
-            }
-
-            if let Some(position) = self.world.get_mut::<Position>(entity) {
-                position.0 = next;
-            }
+        let Some(&Velocity(v)) = self.world.get::<Velocity>(self.player) else {
+            return;
+        };
+        let delta = v.scale(dt);
+        if let Some(position) = self.world.get_mut::<Position>(self.player) {
+            position.0 = position.0.add(delta);
         }
     }
 
-    fn hits_any_obstacle(&self, moving: Entity, at: Vec2) -> bool {
-        let candidate = Self::rect_at(at);
-        self.obstacles.iter().any(|&obstacle| {
-            obstacle != moving
-                && self
-                    .world
-                    .get::<Position>(obstacle)
-                    .is_some_and(|&Position(pos)| candidate.intersects(Self::rect_at(pos)))
-        })
+    // Runs after movement so a collectible reached exactly on the frame
+    // the player arrives gets caught immediately instead of one frame
+    // late. Despawns from the world outright — a collected item isn't
+    // coming back, so there's no reason to keep its component data
+    // around with a "collected" flag on it.
+    fn collection_system(&mut self) {
+        let Some(&Position(player_pos)) = self.world.get::<Position>(self.player) else {
+            return;
+        };
+        let player_rect = Self::rect_at(player_pos);
+
+        let touched: Vec<Entity> = self
+            .collectibles
+            .iter()
+            .copied()
+            .filter(|&entity| {
+                self.world
+                    .get::<Position>(entity)
+                    .is_some_and(|&Position(pos)| player_rect.intersects(Self::rect_at(pos)))
+            })
+            .collect();
+
+        for entity in touched {
+            self.world.despawn(entity);
+            self.collectibles.retain(|&e| e != entity);
+            self.score += 1;
+        }
     }
 }
 
@@ -124,20 +126,35 @@ impl Frame for EcsDemo {
     fn update(&mut self, dt: f32, input: &InputState) {
         self.input_system(input);
         self.movement_system(dt);
+        self.collection_system();
     }
 
     fn render(&mut self, pixels: &mut [u32], width: u32, height: u32) {
         let mut canvas = Canvas::new(pixels, width, height);
         canvas.clear(0xff181818);
 
-        for &obstacle in &self.obstacles {
-            if let Some(Position(pos)) = self.world.get::<Position>(obstacle) {
+        for &entity in &self.collectibles {
+            if let Some(&Position(pos)) = self.world.get::<Position>(entity) {
                 canvas.fill_rect(pos.x as i32, pos.y as i32, RECT_SIZE, RECT_SIZE, 0xffff4444);
             }
         }
 
-        if let Some(Position(pos)) = self.world.get::<Position>(self.player) {
+        if let Some(&Position(pos)) = self.world.get::<Position>(self.player) {
             canvas.fill_rect(pos.x as i32, pos.y as i32, RECT_SIZE, RECT_SIZE, 0xff3388ff);
+        }
+    }
+
+    fn window_title(&self) -> Option<String> {
+        if self.score as usize == self.total_collectibles {
+            Some(format!(
+                "GameForge - Score: {}/{} - All collected!",
+                self.score, self.total_collectibles
+            ))
+        } else {
+            Some(format!(
+                "GameForge - Score: {}/{}",
+                self.score, self.total_collectibles
+            ))
         }
     }
 }
